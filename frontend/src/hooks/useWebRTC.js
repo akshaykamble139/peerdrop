@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
+import { toast } from 'react-toastify';
+
 
 export function useWebRTC() {
     const socketRef = useRef(null);
     const peerConnectionRef = useRef(null);
     const dataChannelRef = useRef(null);
     const fileBufferRef = useRef([]);
-    const roomId = 'test-room';
     const CHUNK_SIZE = 16 * 1024;
 
     const [isInitiator, setIsInitiator] = useState(false);
@@ -19,66 +20,131 @@ export function useWebRTC() {
     const [sentFiles, setSentFiles] = useState([]);
     const [receivingFileName, setReceivingFileName] = useState('');
     const [sendingFileName, setSendingFileName] = useState('');
+    const [roomId, setRoomId] = useState(null);
+    const [username, setUsername] = useState('');
+    const roomIdRef = useRef(roomId);
 
     useEffect(() => {
-        const socket = io('http://localhost:5000');
-        socketRef.current = socket;
+        roomIdRef.current = roomId;
+    }, [roomId]);
 
-        socket.on('connect', () => socket.emit('join', roomId));
-        socket.on('peer-joined', () => setIsInitiator(true));
+    const joinRoom = (
+        room,
+        isCreator = false,
+        onInvalidRoom = () => { },
+        onRoomJoined = (username) => { },
+        onPeerJoined = (username) => { }
+    ) => {
+        // Create socket only if not already connected
+        if (!socketRef.current) {
+            const socket = io('http://localhost:5000');
+            socketRef.current = socket;
 
-        socket.on('signal', async ({ data }) => {
-            const pc = peerConnectionRef.current;
-            if (!pc) return;
+            // All socket listeners go here — they’ll be set only once!
+            socket.on('connect', () => {
+                if (isCreator) {
+                    socket.emit('create-room', room);
+                } else {
+                    socket.emit('join', room);
+                }
+            });
 
-            if (data.type === 'offer') {
-                await pc.setRemoteDescription(new RTCSessionDescription(data));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                socket.emit('signal', { roomId, data: answer });
-            } else if (data.type === 'answer') {
-                await pc.setRemoteDescription(new RTCSessionDescription(data));
-            } else if (data.candidate) {
-                await pc.addIceCandidate(new RTCIceCandidate(data));
+            socket.on('invalid-room', () => {
+                console.warn('❌ Invalid room!');
+                onInvalidRoom();
+            });
+
+            socket.on('room-full', () => {
+                console.warn('🚫 Room is full!');
+                toast.error('Room is full! Max users reached.');
+                socket.disconnect();
+                socketRef.current = null;
+            });
+
+            socket.on('room-joined', ({ roomId, username }) => {
+                console.log(`✅ Joined room ${roomId} as ${username}`);
+                setUsername(username);
+                setIsInitiator(false);
+                setupPeerConnection(false); // Setup as receiver
+                onRoomJoined(username);
+            });
+            
+            socket.on('peer-joined', ({ username }) => {
+                console.log(`🎉 Peer joined: ${username}`);
+                setIsInitiator(true);
+                setupPeerConnection(true); // Setup as initiator
+                onPeerJoined(username);
+            });
+            
+
+            socket.on('signal', async ({ data }) => {
+                console.log('📥 Received signaling data:', data);
+                const pc = peerConnectionRef.current;
+                if (!pc) return;
+
+                if (data.type === 'offer') {
+                    await pc.setRemoteDescription(new RTCSessionDescription(data));
+                    const answer = await pc.createAnswer();
+                    await pc.setLocalDescription(answer);
+                    socket.emit('signal', { roomId: room, data: answer });
+                } else if (data.type === 'answer') {
+                    await pc.setRemoteDescription(new RTCSessionDescription(data));
+                } else if (data.candidate) {
+                    await pc.addIceCandidate(new RTCIceCandidate(data));
+                }
+            });
+        } else {
+            // Socket already exists → emit the appropriate join/create
+            if (isCreator) {
+                socketRef.current.emit('create-room', room);
+            } else {
+                socketRef.current.emit('join', room);
             }
-        });
+        }
 
-        return () => socket.disconnect();
-    }, []);
+        setRoomId(room);
+    };
 
-    useEffect(() => {
+
+    const setupPeerConnection = (initiator) => {
         const pc = new RTCPeerConnection({
             iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
         });
-
+    
         peerConnectionRef.current = pc;
-
-        if (isInitiator) {
+    
+        if (initiator) {
             const dc = pc.createDataChannel('fileChannel');
             dataChannelRef.current = dc;
+    
             dc.onopen = () => console.log('🟢 Data channel open');
             dc.onmessage = handleIncomingMessage;
         } else {
             pc.ondatachannel = (event) => {
                 const dc = event.channel;
                 dataChannelRef.current = dc;
+    
                 dc.onopen = () => console.log('🟢 Data channel open');
                 dc.onmessage = handleIncomingMessage;
             };
         }
-
+    
         pc.onicecandidate = (event) => {
             if (event.candidate) {
-                socketRef.current.emit('signal', { roomId, data: event.candidate });
+                console.log('📤 Sending ICE candidate', roomIdRef.current);
+                socketRef.current.emit('signal', { roomId: roomIdRef.current, data: event.candidate });
             }
         };
-
-        if (isInitiator) {
+    
+        if (initiator) {
             pc.createOffer()
                 .then((offer) => pc.setLocalDescription(offer))
-                .then(() => socketRef.current.emit('signal', { roomId, data: pc.localDescription }));
+                .then(() => {
+                    console.log(`📤 Sending Offer to room: ${roomIdRef.current}`); // Log the correct room ID
+                })
+                .then(() => socketRef.current.emit('signal', { roomId: roomIdRef.current, data: pc.localDescription }));
         }
-    }, [isInitiator]);
+    };
 
     const handleIncomingMessage = (event) => {
         const data = event.data;
@@ -147,6 +213,10 @@ export function useWebRTC() {
     };
 
     const handleSendFile = () => {
+        console.log('📁 Selected file:', selectedFile);
+        console.log('📡 Data channel:', dataChannelRef.current);
+        console.log('🟢 Channel ready state:', dataChannelRef.current?.readyState);
+
         const file = selectedFile;
         if (!file || !dataChannelRef.current || dataChannelRef.current.readyState !== 'open') {
             console.warn('⚠️ No file selected or data channel not ready');
@@ -201,7 +271,9 @@ export function useWebRTC() {
         showSuccessCheck,
         receivingFileName,
         handleFileChange,
-        sendingFileName
+        sendingFileName,
+        joinRoom,
+        username
     };
 
 }
