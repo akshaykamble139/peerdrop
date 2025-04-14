@@ -64,57 +64,57 @@ function App() {
     toast.success('Room ID copied to clipboard!');
   };
 
-  if (!joined) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-white p-6">
-        <RoomEntry
-          onJoinRoom={(id) => { handleJoin(id); }}
-          onCreateRoom={() => { handleCreate(); }}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-white flex items-center justify-center p-6 relative">
+    <>
       <ToastContainer position="top-center" autoClose={1500} />
+      {!joined ?
 
-      <div
-        className="absolute top-4 right-4 bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg text-sm font-mono cursor-pointer hover:bg-indigo-700 transition-all"
-        onClick={() => copyToClipboard(roomId)}
-        title="Click to copy Room ID"
-      >
-        <div>👤 {username}</div>
-        <div>📎 Room: {roomId}</div>
-      </div>
-
-      <div className="bg-white shadow-xl rounded-2xl p-8 max-w-2xl w-full">
-        <h1 className="text-3xl font-bold text-indigo-700 mb-2">📁 PeerDrop</h1>
-        <p className="text-gray-600 mb-4">Secure peer-to-peer file sharing in your browser.</p>
-
-        <FileInput
-          selectedFile={selectedFile}
-          setSelectedFile={setSelectedFile}
-          onSendFile={handleSendFile}
-        />
-
-        <TransferStatus
-          isTransferring={isTransferring}
-          transferProgress={transferProgress}
-          downloadProgress={downloadProgress}
-          showSuccessCheck={showSuccessCheck}
-          receivingFileName={receivingFileName}
-          sendingFileName={sendingFileName}
-        />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-gray-300 pt-6 mt-6">
-          <ReceivedFiles files={receivedFiles} />
-          <div className="border-t md:border-t-0 md:border-l border-gray-300 pt-6 md:pt-0 md:pl-6">
-            <SentFiles files={sentFiles} />
-          </div>
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-white p-6">
+          <RoomEntry
+            onJoinRoom={(id) => { handleJoin(id); }}
+            onCreateRoom={() => { handleCreate(); }}
+          />
         </div>
-      </div>
-    </div>
+        :
+        <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-white flex items-center justify-center p-6 relative">
+
+          <div
+            className="absolute top-4 right-4 bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg text-sm font-mono cursor-pointer hover:bg-indigo-700 transition-all"
+            onClick={() => copyToClipboard(roomId)}
+            title="Click to copy Room ID"
+          >
+            <div>👤 {username}</div>
+            <div>📎 Room: {roomId}</div>
+          </div>
+
+          <div className="bg-white shadow-xl rounded-2xl p-8 max-w-2xl w-full">
+            <h1 className="text-3xl font-bold text-indigo-700 mb-2">📁 PeerDrop</h1>
+            <p className="text-gray-600 mb-4">Secure peer-to-peer file sharing in your browser.</p>
+
+            <FileInput
+              selectedFile={selectedFile}
+              setSelectedFile={setSelectedFile}
+              onSendFile={handleSendFile}
+            />
+
+            <TransferStatus
+              isTransferring={isTransferring}
+              transferProgress={transferProgress}
+              downloadProgress={downloadProgress}
+              showSuccessCheck={showSuccessCheck}
+              receivingFileName={receivingFileName}
+              sendingFileName={sendingFileName}
+            />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-gray-300 pt-6 mt-6">
+              <ReceivedFiles files={receivedFiles} />
+              <div className="border-t md:border-t-0 md:border-l border-gray-300 pt-6 md:pt-0 md:pl-6">
+                <SentFiles files={sentFiles} />
+              </div>
+            </div>
+          </div>
+        </div>}
+    </>
   );
 
 }

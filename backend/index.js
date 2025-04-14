@@ -16,7 +16,7 @@ const io = new Server(server, {
   }
 });
 
-const MAX_USERS_PER_ROOM = 25; // You can adjust this limit
+const MAX_USERS_PER_ROOM = 5; // You can adjust this limit
 
 // Track active rooms
 const rooms = new Map(); // key: roomId, value: Set of socket IDs
@@ -58,17 +58,14 @@ io.on('connection', (socket) => {
 
     socket.join(roomId);
     socket.emit('room-joined', { roomId, username });
-    socket.to(roomId).emit('peer-joined', { username });
+    socket.to(roomId).emit('peer-joined', { username, socketId: socket.id }); // Emit to others with socketId
 
     console.log(`👤 ${username} (${socket.id}) joined room ${roomId}`);
   });
 
-  socket.on('signal', ({ roomId, data }) => {
-    console.log(`🔁 Relaying signal to room ${roomId}:`, data);
-    socket.to(roomId).emit('signal', {
-      from: socket.id,
-      data,
-    });
+  socket.on('signal', ({ to, from, data }) => { // Changed to expect 'to'
+    console.log(`🔁 Relaying signal from ${from} to ${to}:`, data);
+    io.to(to).emit('signal', { from, data }); // Emit directly to the 'to' socket
   });
 
   socket.on('disconnect', () => {

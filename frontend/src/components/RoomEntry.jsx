@@ -9,6 +9,13 @@ function RoomEntry({ onJoinRoom, onCreateRoom }) {
     }
   };
 
+  const handleKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleJoin();
+    }
+  };
+
   return (
     <div className="bg-white shadow-xl rounded-2xl p-8 max-w-md w-full">
       <h1 className="text-3xl font-bold text-indigo-700 mb-4">📁 PeerDrop</h1>
@@ -20,11 +27,18 @@ function RoomEntry({ onJoinRoom, onCreateRoom }) {
         className="border rounded w-full p-2 mb-4"
         value={inputRoomId}
         onChange={(e) => setInputRoomId(e.target.value)}
+        onKeyDown={handleKeyDown} 
       />
       <div className="flex gap-4">
         <button
           onClick={handleJoin}
-          className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 w-full"
+          disabled={!inputRoomId.trim()}
+          className={`w-full px-4 py-2 rounded text-white 
+            ${!inputRoomId.trim()
+              ? 'bg-indigo-300 cursor-not-allowed'
+              : 'bg-indigo-600 hover:bg-indigo-700'}
+          `}
+          // className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 w-full"
         >
           Join Room
         </button>
