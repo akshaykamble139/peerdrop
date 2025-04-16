@@ -26,6 +26,7 @@ function RoomEntry({ onJoinRoom, onCreateRoom }) {
         placeholder="Enter Room ID"
         className="border rounded w-full p-2 mb-4"
         value={inputRoomId}
+        autoFocus
         onChange={(e) => setInputRoomId(e.target.value)}
         onKeyDown={handleKeyDown} 
       />

@@ -6,12 +6,14 @@ function FileInput({ selectedFile, setSelectedFile, onSendFile }) {
     const [isDragging, setIsDragging] = useState(false);
 
     const handleChange = (e) => {
+        console.log('File selected:', e.target.files[0]); // Add this line
         if (e.target.files && e.target.files[0]) {
             setSelectedFile(e.target.files[0]);
         }
     };
 
     const handleSend = () => {
+        console.log('Send button clicked');
         onSendFile();              // Send the file
         setSelectedFile(null);    // Clear selected file state
         if (fileInputRef.current) {
