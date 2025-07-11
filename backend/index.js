@@ -4,19 +4,25 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 
+const PORT = process.env.PORT || 5000;
+const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '*';
+const MAX_USERS_PER_ROOM = parseInt(process.env.MAX_USERS_PER_ROOM, 10) || 5;
+
 const app = express();
-app.use(cors({ origin: '*' }));
+app.use(cors({
+  origin: CLIENT_ORIGIN,
+  methods: ['GET', 'POST'],
+  credentials: true
+}));
 
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: '*',
+    origin: CLIENT_ORIGIN,
     methods: ['GET', 'POST']
   }
 });
-
-const MAX_USERS_PER_ROOM = 5; // You can adjust this limit
 
 // Track active rooms
 const rooms = new Map(); // key: roomId, value: Set of socket IDs
@@ -94,6 +100,6 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(5000, () => {
-  console.log('🚀 Signaling server running on http://localhost:5000');
+server.listen(PORT, () => {
+  console.log(`🚀 Signaling server running on port ${PORT}`);
 });
