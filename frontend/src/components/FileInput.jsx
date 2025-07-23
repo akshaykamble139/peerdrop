@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react';
 import { truncateFileName } from '../utils/helper';
 
-function FileInput({ selectedFile, setSelectedFile, onSendFile }) {
+function FileInput({ selectedFile, setSelectedFile, onSendFile, disableSend }) {
     const fileInputRef = useRef(null);
     const [isDragging, setIsDragging] = useState(false);
 
     const handleChange = (e) => {
-        console.log('File selected:', e.target.files[0]); // Add this line
+        console.log('File selected:', e.target.files[0]);
         if (e.target.files && e.target.files[0]) {
             setSelectedFile(e.target.files[0]);
         }
@@ -14,11 +14,7 @@ function FileInput({ selectedFile, setSelectedFile, onSendFile }) {
 
     const handleSend = () => {
         console.log('Send button clicked');
-        onSendFile();              // Send the file
-        setSelectedFile(null);    // Clear selected file state
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';  // Clear the actual input
-        }
+        onSendFile();
     };
 
     const handleDragEnter = (e) => {
@@ -45,9 +41,7 @@ function FileInput({ selectedFile, setSelectedFile, onSendFile }) {
         
         if (e.dataTransfer.files && e.dataTransfer.files[0]) {
             setSelectedFile(e.dataTransfer.files[0]);
-            // Update the file input value for consistency
             if (fileInputRef.current) {
-                // This is just for visual consistency, we can't actually set the value due to security restrictions
                 fileInputRef.current.files = e.dataTransfer.files;
             }
         }
@@ -55,7 +49,6 @@ function FileInput({ selectedFile, setSelectedFile, onSendFile }) {
 
     return (
         <div className="mb-6">
-            {/* Drag and drop area */}
             <div 
                 className={`border-2 border-dashed rounded-lg p-6 mb-4 transition-colors
                     ${isDragging 
@@ -98,7 +91,6 @@ function FileInput({ selectedFile, setSelectedFile, onSendFile }) {
                 </div>
             </div>
 
-            {/* Selected file display */}
             {selectedFile && (
                 <div className="mt-4 flex items-center justify-between bg-indigo-50 p-3 rounded-lg">
                     <div className="flex items-center">
@@ -122,7 +114,12 @@ function FileInput({ selectedFile, setSelectedFile, onSendFile }) {
                     </div>
                     <button
                         onClick={handleSend}
-                        className="ml-4 px-4 py-1 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700 transition flex-shrink-0"
+                        disabled={disableSend}
+                        className={`ml-4 px-4 py-1 rounded text-sm flex-shrink-0
+                            ${disableSend
+                                ? 'bg-gray-400 cursor-not-allowed'
+                                : 'bg-indigo-600 text-white hover:bg-indigo-700'}
+                        `}
                     >
                         Send File
                     </button>

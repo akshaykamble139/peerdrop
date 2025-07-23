@@ -24,19 +24,18 @@ const io = new Server(server, {
   }
 });
 
-// Track active rooms
-const rooms = new Map(); // key: roomId, value: Set of socket IDs
-const activeUsersInRooms = new Map(); // key: roomId, value: Map of socket.id -> username
+const rooms = new Map();
+const activeUsersInRooms = new Map();
 
 io.on('connection', (socket) => {
   console.log(`🔌 New client connected: ${socket.id}`);
 
   socket.on('create-room', (roomId) => {
     rooms.set(roomId, new Set([socket.id]));
-    const username = generateUniqueUsername(new Set()); // First user, no taken names
+    const username = generateUniqueUsername(new Set());
     activeUsersInRooms.set(roomId, new Map([[socket.id, username]]));
     socket.join(roomId);
-    socket.emit('room-joined', { roomId, username });
+    socket.emit('room-joined', { roomId, username, existingPeers: [] });
     console.log(`✅ Room created: ${roomId} by ${username}`);
   });
 
@@ -59,19 +58,24 @@ io.on('connection', (socket) => {
     const takenUsernames = new Set(Array.from(usernamesMap.values()));
     const username = generateUniqueUsername(takenUsernames);
 
+    const existingPeers = Array.from(roomSockets).map(existingSocketId => ({
+        socketId: existingSocketId,
+        username: usernamesMap.get(existingSocketId)
+    }));
+
     roomSockets.add(socket.id);
     usernamesMap.set(socket.id, username);
 
     socket.join(roomId);
-    socket.emit('room-joined', { roomId, username });
-    socket.to(roomId).emit('peer-joined', { username, socketId: socket.id }); // Emit to others with socketId
+    socket.emit('room-joined', { roomId, username, existingPeers });
+    socket.to(roomId).emit('peer-joined', { username, socketId: socket.id });
 
     console.log(`👤 ${username} (${socket.id}) joined room ${roomId}`);
   });
 
-  socket.on('signal', ({ to, from, data }) => { // Changed to expect 'to'
+  socket.on('signal', ({ to, from, data }) => {
     console.log(`🔁 Relaying signal from ${from} to ${to}:`, data);
-    io.to(to).emit('signal', { from, data }); // Emit directly to the 'to' socket
+    io.to(to).emit('signal', { from, data });
   });
 
   socket.on('disconnect', () => {
@@ -85,7 +89,7 @@ io.on('connection', (socket) => {
         if (usernamesMap) {
           const username = usernamesMap.get(socket.id);
           usernamesMap.delete(socket.id);
-          socket.to(roomId).emit('peer-left', { username });
+          socket.to(roomId).emit('peer-left', { username, socketId: socket.id });
           console.log(`👋 ${username} left room ${roomId}`);
         }
 

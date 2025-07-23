@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useWebRTC } from './hooks/useWebRTC';
+import { usePeerDropLogic } from './hooks/usePeerDropLogic';
 import FileInput from './components/FileInput';
 import TransferStatus from './components/TransferStatus';
 import ReceivedFiles from './components/ReceivedFiles';
@@ -9,53 +9,64 @@ import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 
 function App() {
-  const [joined, setJoined] = useState(false);
-  const [roomId, setRoomId] = useState('');
-  const [username, setUsername] = useState('');
-
   const {
-    isTransferring,
-    transferProgress,
+    roomId,
+    username,
+    isConnecting,
+    connectionError,
+    activePeers,
+    joinRoom,
+    receivedFiles,
     downloadProgress,
     showSuccessCheck,
-    receivedFiles,
-    sentFiles,
+    receivingFileName,
     selectedFile,
     setSelectedFile,
     handleSendFile,
-    receivingFileName,
+    isTransferring,
+    transferProgress,
     sendingFileName,
-    joinRoom
-  } = useWebRTC();
+    sentFiles,
+  } = usePeerDropLogic();
+
+  const handleInvalidRoom = () => {
+    toast.error("Room doesn't exist or is inactive.");
+  };
+
+  const handleRoomJoined = (assignedUsername) => {
+    toast.success(`Joined room as ${assignedUsername}!`);
+  };
+
+  const handleRoomFull = () => {
+    toast.error('Room is full! Max users reached.');
+  };
+
+  const handleConnectionError = (message) => {
+    toast.error(message);
+  };
 
   const handleJoin = (id) => {
     if (id.trim()) {
-      setRoomId(id);
       joinRoom(
         id,
         false,
-        () => {
-          toast.error("Room doesn't exist or is inactive.");
-        },
-        (assignedUsername) => {
-          setUsername(assignedUsername);
-          setJoined(true);
-        }
+        handleInvalidRoom,
+        handleRoomJoined,
+        handleRoomFull,
+        handleConnectionError
       );
     }
   };
 
   const handleCreate = () => {
-    const newRoomId = crypto.randomUUID().slice(0, 12);
-    setRoomId(newRoomId);
+    const newRoomId = crypto.randomUUID().slice(-12);
     joinRoom(
       newRoomId,
       true,
-      () => { }, // no invalid room callback for create
-      (assignedUsername) => {
-        setUsername(assignedUsername);
-        setJoined(true);
-      }
+      handleInvalidRoom,
+      handleRoomJoined,
+      handleRoomFull,
+      handleConnectionError
     );
   };
 
@@ -64,18 +75,23 @@ function App() {
     toast.success('Room ID copied to clipboard!');
   };
 
+  const isInRoom = roomId !== null;
+
+  const hasOpenDataChannel = activePeers.some(peer => peer.dataChannelOpen);
+
   return (
     <>
       <ToastContainer position="top-center" autoClose={1500} />
-      {!joined ?
-
+      {!isInRoom ? (
         <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-100 to-white p-6">
           <RoomEntry
-            onJoinRoom={(id) => { handleJoin(id); }}
-            onCreateRoom={() => { handleCreate(); }}
+            onJoinRoom={handleJoin}
+            onCreateRoom={handleCreate}
+            isConnecting={isConnecting}
+            connectionError={connectionError}
           />
         </div>
-        :
+      ) : (
         <div className="min-h-screen bg-gradient-to-br from-indigo-100 to-white flex items-center justify-center p-6 relative">
 
           <div
@@ -85,6 +101,20 @@ function App() {
           >
             <div>👤 {username}</div>
             <div>📎 Room: {roomId}</div>
+            {activePeers.length > 0 && (
+                <div className="mt-2 text-xs">
+                    Peers: {activePeers.map(peer => (
+                        <span key={peer.socketId} className={`mr-2 ${peer.dataChannelOpen ? 'text-green-300' : 'text-yellow-300'}`}>
+                            {peer.username} {peer.dataChannelOpen ? '🟢' : '🟡'}
+                        </span>
+                    ))}
+                </div>
+            )}
+            {activePeers.length === 0 && (
+                <div className="mt-2 text-xs text-indigo-200">
+                    Waiting for peers...
+                </div>
+            )}
           </div>
 
           <div className="bg-white shadow-xl rounded-2xl p-8 max-w-2xl w-full">
@@ -94,7 +124,8 @@ function App() {
             <FileInput
               selectedFile={selectedFile}
               setSelectedFile={setSelectedFile}
-              onSendFile={handleSendFile}
+              onSendFile={() => handleSendFile(selectedFile)}
+              disableSend={!hasOpenDataChannel || isTransferring}
             />
 
             <TransferStatus
@@ -113,10 +144,10 @@ function App() {
               </div>
             </div>
           </div>
-        </div>}
+        </div>
+      )}
     </>
   );
-
 }
 
 export default App;
