@@ -18,7 +18,7 @@ function RoomEntry({ onJoinRoom, onCreateRoom, isConnecting, connectionError }) 
 
   return (
     <div className="bg-white shadow-xl rounded-2xl p-8 max-w-md w-full">
-      <h1 className="text-3xl font-bold text-indigo-700 mb-4">📁 PeerDrop</h1>
+      <h1 className="text-3xl font-bold text-indigo-700 mb-4">PeerDrop 📁</h1>
       <p className="text-gray-600 mb-6">Create or join a room to start sharing files securely.</p>
 
       <input

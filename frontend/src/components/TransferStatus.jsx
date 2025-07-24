@@ -1,3 +1,5 @@
+import { truncateFileName } from "../utils/helper";
+
 function TransferStatus({
     isTransferring,
     transferProgress,
@@ -32,7 +34,7 @@ function TransferStatus({
 
                     {fileName && (
                         <p className="text-sm text-gray-600 mb-1 italic">
-                            <span className="font-medium">{fileName}</span>
+                            <span className="font-medium">{truncateFileName(fileName,40)}</span>
                         </p>
                     )}
                 </>
