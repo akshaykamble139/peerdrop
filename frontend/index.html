@@ -1,13 +1,24 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/peerdrop.jpg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PeerDrop</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/peerdrop.jpg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PeerDrop</title>
+  <script>
+    const redirectPath = sessionStorage.redirectPath;
+    if (redirectPath) {
+      sessionStorage.removeItem("redirectPath");
+      history.replaceState(null, "", redirectPath);
+    }
+  </script>
+
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
 </html>
