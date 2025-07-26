@@ -1,14 +1,25 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/peerdrop.jpg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PeerDrop</title>
-    <script type="module" crossorigin src="/assets/index-WOU52TXa.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-Mhw0wFE1.css">
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/peerdrop.jpg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PeerDrop</title>
+  <script>
+    const redirectPath = sessionStorage.redirectPath;
+    if (redirectPath) {
+      sessionStorage.removeItem("redirectPath");
+      history.replaceState(null, "", redirectPath);
+    }
+  </script>
+
+  <script type="module" crossorigin src="/assets/index-WOU52TXa.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-Mhw0wFE1.css">
+</head>
+
+<body>
+  <div id="root"></div>
+</body>
+
 </html>

@@ -4,10 +4,9 @@
 <head>
   <meta charset="UTF-8" />
   <title>Redirecting…</title>
-  <meta http-equiv="refresh" content="0; URL=./">
-  <script type="text/javascript">
-    const fullUrl = window.location.origin + window.location.pathname + window.location.search + window.location.hash;
-    window.location.replace(fullUrl);
+  <script>
+    sessionStorage.redirectPath = location.pathname + location.search + location.hash;
+    location.replace("/");
   </script>
 </head>
 
