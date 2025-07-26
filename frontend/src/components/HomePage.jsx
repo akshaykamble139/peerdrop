@@ -1,15 +1,19 @@
-// src/components/HomePage.jsx
 import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { usePeerDropLogic } from '../hooks/usePeerDropLogic';
 import FileInput from './FileInput';
 import TransferStatus from './TransferStatus';
 import ReceivedFiles from './ReceivedFiles';
 import SentFiles from './SentFiles';
 import RoomEntry from './RoomEntry';
-import { toast } from 'react-toastify';
 import QRCode from 'react-qr-code';
+import RoomInfo from './RoomInfo';
+import { copyToClipboard, handleConnectionError, handleInvalidRoom, handleRoomFull, handleRoomJoined } from '../utils/helper';
 
 function HomePage() {
+    const { roomId: roomIdFromUrl } = useParams();
+    const navigate = useNavigate();
+
     const {
         roomId,
         username,
@@ -32,25 +36,6 @@ function HomePage() {
 
     const [initialAttemptMade, setInitialAttemptMade] = useState(false);
     const [showQR, setShowQR] = useState(false);
-
-    const handleInvalidRoom = () => {
-        toast.error("Room doesn't exist or is inactive.");
-        window.history.pushState({}, document.title, window.location.origin + window.location.pathname.split('/')[0]);
-    };
-
-    const handleRoomJoined = (assignedUsername) => {
-        toast.success(`Joined room as ${assignedUsername}!`);
-    };
-
-    const handleRoomFull = () => {
-        toast.error('Room is full! Max users reached.');
-        window.history.pushState({}, document.title, window.location.origin + window.location.pathname.split('/')[0]);
-    };
-
-    const handleConnectionError = (message) => {
-        toast.error(message);
-        window.history.pushState({}, document.title, window.location.origin + window.location.pathname.split('/')[0]);
-    };
 
     const handleManualJoin = (id) => {
         if (id.trim()) {
@@ -79,12 +64,9 @@ function HomePage() {
 
     useEffect(() => {
         if (!initialAttemptMade && !roomId && !isConnecting) {
-            const pathSegments = window.location.pathname.split('/').filter(Boolean);
-            const initialRoomIdFromUrl = pathSegments.length > 0 ? pathSegments[0] : null;
-
-            if (initialRoomIdFromUrl) {
+            if (roomIdFromUrl) {
                 joinRoom(
-                    initialRoomIdFromUrl,
+                    roomIdFromUrl,
                     false,
                     handleInvalidRoom,
                     handleRoomJoined,
@@ -94,18 +76,19 @@ function HomePage() {
             }
             setInitialAttemptMade(true);
         }
-    }, [initialAttemptMade, roomId, isConnecting, joinRoom, handleInvalidRoom, handleRoomJoined, handleRoomFull, handleConnectionError]);
+    }, [initialAttemptMade, roomId, isConnecting, roomIdFromUrl, joinRoom, handleInvalidRoom, handleRoomJoined, handleRoomFull, handleConnectionError]);
 
-    const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text);
-        toast.success('Room ID copied to clipboard!');
-    };
+    useEffect(() => {
+        if (roomId && roomIdFromUrl !== roomId) {
+            navigate(`/${roomId}`, { replace: true });
+        }
+    }, [roomId, roomIdFromUrl, navigate]);
 
-    const copyRoomUrl = () => {
-        const roomUrl = `${window.location.origin}/${roomId}`;
-        navigator.clipboard.writeText(roomUrl);
-        toast.success('Room URL copied to clipboard!');
-    };
+    useEffect(() => {
+        if (roomId === null && roomIdFromUrl) {
+            navigate('/', { replace: true });
+        }
+    }, [roomId, roomIdFromUrl, navigate]);
 
     const isInRoom = roomId !== null;
     const hasOpenDataChannel = activePeers.some(peer => peer.dataChannelOpen);
@@ -115,12 +98,12 @@ function HomePage() {
             {isInRoom && (
                 <>
                     <div
-                        className="fixed top-6 md:top-24 left-6 z-50 bg-indigo-600 text-white p-3 rounded-full shadow-lg cursor-pointer hover:bg-indigo-700 transition-all border-2 border-white"
+                        className="fixed top-6 md:top-24 left-5 z-50 bg-indigo-600 text-white p-3 rounded-full shadow-lg cursor-pointer hover:bg-indigo-700 transition-all border-2 border-white md:hidden"
                         onClick={() => setShowQR(true)}
                         title="Show QR Code for room"
                     >
-                        <svg className="w-5 h-5 md:w-6 md:h-6" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M3 11h8V3H3v8zm2-6h4v4H5V5zM3 21h8v-8H3v8zm2-6h4v4H5v-4zM13 3v8h8V3h-8zm6 6h-4V5h4v4zM19 13h2v2h-2zM13 13h2v2h-2zM15 15h2v2h-2zM13 17h2v2h-2zM15 19h2v2h-2zM17 17h2v2h-2zM17 19h2v2h-2zM19 17h2v2h-2zM21 15h2v2h-2zM19 21h2v2h-2z"/>
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M3 11h8V3H3v8zm2-6h4v4H5V5zM3 21h8v-8H3v8zm2-6h4v4H5v-4zM13 3v8h8V3h-8zm6 6h-4V5h4v4zM19 13h2v2h-2zM13 13h2v2h-2zM15 15h2v2h-2zM13 17h2v2h-2zM15 19h2v2h-2zM17 17h2v2h-2zM17 19h2v2h-2zM19 17h2v2h-2zM21 15h2v2h-2zM19 21h2v2h-2z" />
                         </svg>
                     </div>
 
@@ -152,39 +135,35 @@ function HomePage() {
                     )}
 
                     <div className="hidden md:block">
-                        <div
-                            className="fixed top-24 right-6 z-50 bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg text-sm font-mono cursor-pointer hover:bg-indigo-700 transition-all"
-                            onClick={() => copyToClipboard(roomId)}
-                            title="Click to copy Room ID"
-                        >
-                            <div>👤 {username}</div>
-                            <div>📎 Room: {roomId}</div>
-                            {activePeers.length > 0 && (
-                                <div className="mt-2 text-xs">
-                                    Peers: {activePeers.map(peer => (
-                                        <span key={peer.socketId} className={`mr-2 ${peer.dataChannelOpen ? 'text-green-300' : 'text-yellow-300'}`}>
-                                            {peer.username} {peer.dataChannelOpen ? '🟢' : '🟡'}
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-                            {activePeers.length === 0 && (
-                                <div className="mt-2 text-xs text-indigo-200">
-                                    Waiting for peers...
-                                </div>
-                            )}
+                        <div className="fixed top-24 left-6 z-50 flex items-center space-x-4">
+                            <div
+                                className="bg-indigo-600 text-white p-3 rounded-full shadow-lg cursor-pointer hover:bg-indigo-700 transition-all border-2 border-white"
+                                onClick={() => setShowQR(true)}
+                                title="Show QR Code for room"
+                            >
+                                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M3 11h8V3H3v8zm2-6h4v4H5V5zM3 21h8v-8H3v8zm2-6h4v4H5v-4zM13 3v8h8V3h-8zm6 6h-4V5h4v4zM19 13h2v2h-2zM13 13h2v2h-2zM15 15h2v2h-2zM13 17h2v2h-2zM15 19h2v2h-2zM17 17h2v2h-2zM17 19h2v2h-2zM19 17h2v2h-2zM21 15h2v2h-2zM19 21h2v2h-2z" />
+                                </svg>
+                            </div>
+                            <span className="text-indigo-700 font-semibold text-lg">or</span>
+                            <div
+                                className="bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg text-sm font-mono cursor-pointer hover:bg-indigo-700 transition-all"
+                                onClick={() => copyToClipboard(`${window.location.origin}/${roomId}`, "url")}
+                                title="Click to copy Room URL"
+                            >
+                                <div>🔗 Copy Room URL</div>
+                            </div>
                         </div>
-                        <div
-                            className="fixed top-48 right-6 z-50 bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg text-sm font-mono cursor-pointer hover:bg-indigo-700 transition-all"
-                            onClick={copyRoomUrl}
-                            title="Click to copy Room URL"
-                        >
-                            <div>🔗 Copy Room URL</div>
-                        </div>
+                        <RoomInfo
+                            username={username}
+                            roomId={roomId}
+                            activePeers={activePeers}
+                            isOnMobile={false}
+                        />
                     </div>
                 </>
             )}
-            <div className="w-full flex justify-center">
+            <div className="w-full flex justify-center items-center min-h-[calc(100vh-120px)]">
                 {!isInRoom ? (
                     <RoomEntry
                         onJoinRoom={handleManualJoin}
@@ -193,41 +172,22 @@ function HomePage() {
                         connectionError={connectionError}
                     />
                 ) : (
-                    <div className="bg-white shadow-xl rounded-2xl p-8 w-full max-w-2xl">
-                        <div className="md:hidden mb-4 bg-indigo-50 p-4 rounded-xl border border-indigo-200">
-                            <div className="flex items-center justify-between mb-2">
-                                <div className="text-sm text-indigo-700 font-medium">
-                                    👤 {username} | 📎 Room: {roomId}
-                                </div>
+                    <div className="bg-white shadow-xl rounded-2xl p-4 md:p-8 w-full max-w-2xl mx-4">
+                        <div className="md:hidden mb-4 w-full">
+                            <div
+                                className="bg-indigo-600 text-white px-4 py-2 rounded-2xl shadow-lg text-sm font-mono cursor-pointer hover:bg-indigo-700 transition-all mb-4"
+                                onClick={() => copyToClipboard(`${window.location.origin}/${roomId}`, "url")}
+                                title="Click to copy Room URL"
+                            >
+                                <div className="text-center">🔗 Copy Room URL</div>
                             </div>
-                            {activePeers.length > 0 && (
-                                <div className="text-xs text-indigo-600 mb-2">
-                                    Peers: {activePeers.map(peer => (
-                                        <span key={peer.socketId} className={`mr-2 ${peer.dataChannelOpen ? 'text-green-600' : 'text-yellow-600'}`}>
-                                            {peer.username} {peer.dataChannelOpen ? '🟢' : '🟡'}
-                                        </span>
-                                    ))}
-                                </div>
-                            )}
-                            {activePeers.length === 0 && (
-                                <div className="text-xs text-indigo-500 mb-2">
-                                    Waiting for peers...
-                                </div>
-                            )}
-                            <div className="flex gap-2">
-                                <button
-                                    onClick={() => copyToClipboard(roomId)}
-                                    className="flex-1 bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-all"
-                                >
-                                    Copy Room ID
-                                </button>
-                                <button
-                                    onClick={copyRoomUrl}
-                                    className="flex-1 bg-indigo-600 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-700 transition-all"
-                                >
-                                    Copy Room URL
-                                </button>
-                            </div>
+
+                            <RoomInfo
+                                username={username}
+                                roomId={roomId}
+                                activePeers={activePeers}
+                                isOnMobile={true}
+                            />
                         </div>
 
                         <h1 className="text-3xl font-bold text-indigo-700 mb-2">📁 PeerDrop</h1>
