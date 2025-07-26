@@ -22,22 +22,3 @@ export const copyToClipboard = (text, option = "id") => {
         toast.success('Copied to clipboard!');
     }
 };
-
-export const handleInvalidRoom = () => {
-    toast.error("Room doesn't exist or is inactive.");
-    navigate('/', { replace: true });
-};
-
-export const handleRoomJoined = (assignedUsername) => {
-    toast.success(`Joined room as ${assignedUsername}!`);
-};
-
-export const handleRoomFull = () => {
-    toast.error('Room is full! Max users reached.');
-    navigate('/', { replace: true });
-};
-
-export const handleConnectionError = (message) => {
-    toast.error(message);
-    navigate('/', { replace: true });
-};

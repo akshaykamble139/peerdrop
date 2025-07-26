@@ -8,7 +8,8 @@ import SentFiles from './SentFiles';
 import RoomEntry from './RoomEntry';
 import QRCode from 'react-qr-code';
 import RoomInfo from './RoomInfo';
-import { copyToClipboard, handleConnectionError, handleInvalidRoom, handleRoomFull, handleRoomJoined } from '../utils/helper';
+import { copyToClipboard } from '../utils/helper';
+import { toast } from 'react-toastify';
 
 function HomePage() {
     const { roomId: roomIdFromUrl } = useParams();
@@ -36,6 +37,25 @@ function HomePage() {
 
     const [initialAttemptMade, setInitialAttemptMade] = useState(false);
     const [showQR, setShowQR] = useState(false);
+
+    const handleInvalidRoom = () => {
+        toast.error("Room doesn't exist or is inactive.");
+        navigate('/', { replace: true });
+    };
+
+    const handleRoomJoined = (assignedUsername) => {
+        toast.success(`Joined room as ${assignedUsername}!`);
+    };
+
+    const handleRoomFull = () => {
+        toast.error('Room is full! Max users reached.');
+        navigate('/', { replace: true });
+    };
+
+    const handleConnectionError = (message) => {
+        toast.error(message);
+        navigate('/', { replace: true });
+    };
 
     const handleManualJoin = (id) => {
         if (id.trim()) {
