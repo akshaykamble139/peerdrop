@@ -61,12 +61,6 @@ function RoomEntry({ onJoinRoom, onCreateRoom, isConnecting, connectionError }) 
           Establishing connection... (This may take a moment)
         </p>
       )}
-
-      {connectionError && ( 
-        <p className="text-center text-red-600 mt-4">
-          {connectionError}
-        </p>
-      )}
     </div>
   );
 }

@@ -54,7 +54,6 @@ function HomePage() {
 
     const handleConnectionError = (message) => {
         toast.error(message);
-        navigate('/', { replace: true });
     };
 
     const handleManualJoin = (id) => {

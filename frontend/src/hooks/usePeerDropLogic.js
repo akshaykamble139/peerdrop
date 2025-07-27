@@ -1,4 +1,3 @@
-// src/hooks/usePeerDropLogic.js
 import { useRef, useState, useEffect, useCallback } from 'react';
 import io from 'socket.io-client';
 import { toast } from 'react-toastify';
@@ -28,6 +27,8 @@ export function usePeerDropLogic() {
     const [transferProgress, setTransferProgress] = useState(0);
     const [sendingFileName, setSendingFileName] = useState('');
     const [sentFiles, setSentFiles] = useState([]);
+
+    const shouldAttemptReconnectRef = useRef(true);
 
     const closeDataChannel = useCallback((socketId) => {
         if (dataChannelsRef.current[socketId]) {
@@ -361,17 +362,26 @@ export function usePeerDropLogic() {
     ) => {
         setIsConnecting(true);
         setConnectionError(null);
+        shouldAttemptReconnectRef.current = true;
 
-        if (socketRef.current && socketRef.current.connected) {
+        if (socketRef.current) {
+            shouldAttemptReconnectRef.current = false;
             socketRef.current.disconnect();
             socketRef.current = null;
         }
 
-        const socket = io(import.meta.env.VITE_BACKEND_URL);
+        const socket = io(import.meta.env.VITE_BACKEND_URL, {
+            reconnection: true,
+            reconnectionAttempts: Infinity,
+            reconnectionDelay: 20000,
+            reconnectionDelayMax: 50000,
+            randomizationFactor: 0.5
+        });
         socketRef.current = socket;
 
         socket.on('connect', () => {
             console.log("Socket connected, attempting to join/create room.");
+            shouldAttemptReconnectRef.current = true;
             if (isCreator) {
                 socket.emit('create-room', room);
             } else {
@@ -381,17 +391,18 @@ export function usePeerDropLogic() {
 
         socket.on('connect_error', (error) => {
             console.error('Socket connection error:', error);
-            socket.disconnect();
-            socketRef.current = null;
-            onConnectionError("Failed to connect to server. Please try again later.");
-            setIsConnecting(false);
+            if (shouldAttemptReconnectRef.current) {
+                onConnectionError("Failed to connect to server. Retrying connection...");
+                setConnectionError("Failed to connect to server. Retrying...");
+            } else {
+                setIsConnecting(false);
+                onConnectionError("Failed to connect to server.");
+                setConnectionError("Failed to connect to server.");
+            }
         });
 
         socket.on('disconnect', (reason) => {
             console.log(`Socket disconnected: ${reason}`);
-            if ((reason === 'io server disconnect' || reason === 'transport close') && !username) {
-                onConnectionError(`Socket disconnected due to ${reason}`);
-            }
             setRoomId(null);
             setUsername('');
             setActivePeers([]);
@@ -399,23 +410,32 @@ export function usePeerDropLogic() {
             for (const peerId in peerConnectionsRef.current) {
                 closePeerConnection(peerId);
             }
-            setIsConnecting(false);
+
+            if (shouldAttemptReconnectRef.current) {
+                setIsConnecting(true);
+                onConnectionError(`Disconnected: ${reason}. Retrying connection...`);
+                setConnectionError(`Disconnected: ${reason}. Retrying...`);
+            } else {
+                setIsConnecting(false);
+                onConnectionError(`Disconnected from server.`);
+                setConnectionError(null);
+            }
         });
 
         socket.on('invalid-room', () => {
             console.warn('❌ Invalid room!');
+            shouldAttemptReconnectRef.current = false;
             socket.disconnect();
             socketRef.current = null;
             onInvalidRoom();
-            setIsConnecting(false);
         });
 
         socket.on('room-full', () => {
             console.warn('🚫 Room is full!');
+            shouldAttemptReconnectRef.current = false;
             socket.disconnect();
             socketRef.current = null;
             onRoomFull();
-            setIsConnecting(false);
         });
 
         socket.on('room-joined', ({ roomId: assignedRoomId, username: assignedUsername, existingPeers = [] }) => {
@@ -426,6 +446,7 @@ export function usePeerDropLogic() {
             peersInitiatedConnectionWithRef.current = [];
             onRoomJoined(assignedUsername);
             setIsConnecting(false);
+            setConnectionError(null);
 
             existingPeers.forEach(peer => {
                 if (socketRef.current.id < peer.socketId) {
@@ -466,11 +487,12 @@ export function usePeerDropLogic() {
             closePeerConnection(leftSocketId);
         });
 
-    }, [closePeerConnection, createAndSendOffer, handleIncomingSignal]);
+    }, [closePeerConnection, createAndSendOffer, handleIncomingSignal, username]);
 
     useEffect(() => {
         return () => {
             if (socketRef.current) {
+                shouldAttemptReconnectRef.current = false;
                 socketRef.current.disconnect();
                 socketRef.current = null;
             }
