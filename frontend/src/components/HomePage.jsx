@@ -33,6 +33,8 @@ function HomePage() {
         transferProgress,
         sendingFileName,
         sentFiles,
+        transferStatus,
+        isProcessingFile,
     } = usePeerDropLogic();
 
     const [initialAttemptMade, setInitialAttemptMade] = useState(false);
@@ -226,6 +228,7 @@ function HomePage() {
                             showSuccessCheck={showSuccessCheck}
                             receivingFileName={receivingFileName}
                             sendingFileName={sendingFileName}
+                            isProcessingFile={isProcessingFile}
                         />
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-gray-300 pt-6 mt-6">

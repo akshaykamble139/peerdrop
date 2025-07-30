@@ -13,7 +13,7 @@ export function usePeerDropLogic() {
 
     const peerConnectionsRef = useRef({});
     const iceCandidateBufferRef = useRef({});
-    const dataChannelsRef = useRef({});
+    const dataChannelsRef = {};
     const fileBufferRef = useRef({});
 
     const [receivedFiles, setReceivedFiles] = useState([]);
@@ -22,62 +22,202 @@ export function usePeerDropLogic() {
     const [receivingFileName, setReceivingFileName] = useState('');
 
     const CHUNK_SIZE = 16 * 1024;
+    const CHUNK_WINDOW_SIZE = 10;
+
     const [selectedFile, setSelectedFile] = useState(null);
     const [isTransferring, setIsTransferring] = useState(false);
     const [transferProgress, setTransferProgress] = useState(0);
     const [sendingFileName, setSendingFileName] = useState('');
     const [sentFiles, setSentFiles] = useState([]);
+    const [isProcessingFile, setIsProcessingFile] = useState(false);
+
+    const pendingTransfersRef = useRef({});
+    const [transferStatus, setTransferStatus] = useState({});
 
     const shouldAttemptReconnectRef = useRef(true);
 
+    const calculateFileHash = useCallback(async (fileBuffer) => {
+        const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }, []);
+
     const closeDataChannel = useCallback((socketId) => {
-        if (dataChannelsRef.current[socketId]) {
-            dataChannelsRef.current[socketId].close();
-            delete dataChannelsRef.current[socketId];
+        if (dataChannelsRef[socketId]) {
+            dataChannelsRef[socketId].close();
+            delete dataChannelsRef[socketId];
             console.log(`Closed data channel with ${socketId}`);
         }
     }, []);
 
-    const handleIncomingMessage = useCallback((event, fromSocketId) => {
+    const handleIncomingMessage = useCallback(async (event, fromSocketId) => {
         const data = event.data;
 
         if (typeof data === 'string' && data.startsWith('metadata:')) {
             const metadata = JSON.parse(data.replace('metadata:', ''));
-            fileBufferRef.current[fromSocketId] = { buffer: [], metadata: metadata };
+            fileBufferRef.current[fromSocketId] = {
+                buffer: new Array(metadata.totalChunks).fill(null),
+                metadata: metadata,
+                receivedChunks: 0
+            };
+
             setDownloadProgress(0);
             setReceivingFileName(metadata.name);
             setShowSuccessCheck(false);
+        } else if (typeof data === 'string' && data.startsWith('chunk-ack:')) {
+            const ackData = JSON.parse(data.replace('chunk-ack:', ''));
+            const { fileId, chunkIndex } = ackData;
+            if (pendingTransfersRef.current[fileId]) {
+                const transfer = pendingTransfersRef.current[fileId];
+                transfer.ackedChunks.add(chunkIndex);
+                while (transfer.lowestUnackedChunk < transfer.totalChunks && transfer.ackedChunks.has(transfer.lowestUnackedChunk)) {
+                    transfer.lowestUnackedChunk++;
+                }
+
+                transfer.sendWindowOfChunks();
+
+                const progress = Math.round((transfer.lowestUnackedChunk / transfer.totalChunks) * 100);
+                setTransferProgress(progress);
+            }
+        } else if (typeof data === 'string' && data.startsWith('file-received-confirmation:')) {
+            const confirmationData = JSON.parse(data.replace('file-received-confirmation:', ''));
+            const { fileId, fileName, isValid } = confirmationData;
+
+            if (pendingTransfersRef.current[fileId]) {
+                const transfer = pendingTransfersRef.current[fileId];
+                if (isValid) {
+                    transfer.confirmedPeers.add(fromSocketId);
+                } else {
+                    console.error(`File validation failed for peer ${fromSocketId}`);
+                    toast.error(`File validation failed for peer ${fromSocketId}`);
+                    transfer.remainingPeersCount--;
+                }
+
+                const confirmedCount = transfer.confirmedPeers.size;
+                const totalPeersForCompletion = transfer.remainingPeersCount;
+
+                setTransferStatus(prev => ({
+                    ...prev,
+                    [fileId]: { confirmed: confirmedCount, total: totalPeersForCompletion }
+                }));
+
+                if (confirmedCount === totalPeersForCompletion && transfer) {
+                    setSentFiles((prev) => [...prev, {
+                        name: fileName,
+                        recipients: Array.from(transfer.confirmedPeers)
+                    }]);
+
+                    const initialTotalPeers = transfer.initialPeerIds.length;
+                    let successMessage = `File "${fileName}" sent successfully`;
+                    if (confirmedCount === initialTotalPeers) {
+                        if (initialTotalPeers === 1) {
+                            successMessage += ` to ${initialTotalPeers} peer!`;
+                        }
+                        else {
+                            successMessage += ` to all ${initialTotalPeers} peers!`;
+                        }
+                    } else if (confirmedCount > 0) {
+                        successMessage += ` to ${confirmedCount} of ${initialTotalPeers} initial peers!`;
+                    } else {
+                        successMessage += ` but no peers confirmed receipt.`;
+                    }
+                    toast.success(successMessage);
+
+                    delete pendingTransfersRef.current[fileId];
+                    setTransferStatus(prev => {
+                        const newStatus = { ...prev };
+                        delete newStatus[fileId];
+                        return newStatus;
+                    });
+
+                    if (Object.keys(pendingTransfersRef.current).length === 0) {
+                        setIsTransferring(false);
+                        setSelectedFile(null);
+                        setTimeout(() => setSendingFileName(''), 3000);
+                    }
+                }
+            }
         } else if (data === 'end') {
-            const blob = new Blob(fileBufferRef.current[fromSocketId].buffer);
-            const url = URL.createObjectURL(blob);
-            const name = fileBufferRef.current[fromSocketId].metadata.name;
-            if (fileBufferRef.current[fromSocketId] && fileBufferRef.current[fromSocketId].metadata) {
+            const fileBuffer = fileBufferRef.current[fromSocketId];
+            if (!fileBuffer || !fileBuffer.metadata) {
+                console.error('Error: Metadata is missing when processing the end message!');
+                toast.error('File reception error: Metadata missing.');
+                return;
+            }
+
+            const validChunks = fileBuffer.buffer.filter(chunk => chunk !== null);
+            if (validChunks.length !== fileBuffer.metadata.totalChunks) {
+                console.error(`Missing chunks: expected ${fileBuffer.metadata.totalChunks}, got ${validChunks.length}`);
+                toast.error('File reception error: Missing chunks.');
+                return;
+            }
+
+            const blob = new Blob(fileBuffer.buffer);
+            const arrayBuffer = await blob.arrayBuffer();
+            const receivedHash = await calculateFileHash(arrayBuffer);
+            const isValid = receivedHash === fileBuffer.metadata.hash;
+
+            if (isValid) {
+                const url = URL.createObjectURL(blob);
+                const name = fileBuffer.metadata.name;
+
                 setReceivedFiles((files) => [
                     ...files,
                     { name, url, sender: fromSocketId },
                 ]);
+
+                setDownloadProgress(100);
+                setShowSuccessCheck(true);
+                setTimeout(() => setShowSuccessCheck(false), 3000);
+                setTimeout(() => {
+                    setDownloadProgress(0);
+                    setReceivingFileName('');
+                }, 3000);
             } else {
-                console.error('Error: Metadata is missing when processing the end message!');
-                toast.error('File reception error: Metadata missing.');
+                console.error('File integrity check failed');
+                toast.error('File corruption detected. Transfer failed.');
             }
-            setDownloadProgress(100);
-            setShowSuccessCheck(true);
-            setTimeout(() => setShowSuccessCheck(false), 3000);
+
+            if (dataChannelsRef[fromSocketId]) {
+                const confirmationMessage = `file-received-confirmation:${JSON.stringify({
+                    fileId: fileBuffer.metadata.fileId,
+                    fileName: fileBuffer.metadata.name,
+                    isValid
+                })}`;
+                dataChannelsRef[fromSocketId].send(confirmationMessage);
+            }
+
             delete fileBufferRef.current[fromSocketId];
-        } else {
+        } else if (data instanceof ArrayBuffer) {
             if (!fileBufferRef.current[fromSocketId]) {
-                fileBufferRef.current[fromSocketId] = { buffer: [] };
+                return;
             }
-            fileBufferRef.current[fromSocketId].buffer.push(data);
-            const totalReceived = fileBufferRef.current[fromSocketId].buffer.reduce((acc, chunk) => acc + chunk.byteLength, 0);
-            const totalSize = fileBufferRef.current[fromSocketId].metadata?.size || 1;
-            const percent = Math.round((totalReceived / totalSize) * 100);
-            setDownloadProgress(percent);
+
+            const view = new DataView(data);
+            const chunkIndex = view.getUint32(0, true);
+            const chunkData = data.slice(4);
+
+            const fileBuffer = fileBufferRef.current[fromSocketId];
+            if (chunkIndex < fileBuffer.buffer.length && fileBuffer.buffer[chunkIndex] === null) {
+                fileBuffer.buffer[chunkIndex] = chunkData;
+                fileBuffer.receivedChunks++;
+                const percent = Math.round((fileBuffer.receivedChunks / fileBuffer.metadata.totalChunks) * 100);
+                setDownloadProgress(percent);
+
+                const chunkAck = `chunk-ack:${JSON.stringify({
+                    fileId: fileBuffer.metadata.fileId,
+                    chunkIndex,
+                    totalChunks: fileBuffer.metadata.totalChunks
+                })}`;
+                if (dataChannelsRef[fromSocketId]) {
+                    dataChannelsRef[fromSocketId].send(chunkAck);
+                }
+            }
         }
-    }, []);
+    }, [calculateFileHash]);
 
     const setDataChannel = useCallback((socketId, dataChannel) => {
-        dataChannelsRef.current[socketId] = dataChannel;
+        dataChannelsRef[socketId] = dataChannel;
         dataChannel.onmessage = (event) => handleIncomingMessage(event, socketId);
         dataChannel.onopen = () => {
             console.log(`Data channel open with ${socketId}`);
@@ -89,7 +229,7 @@ export function usePeerDropLogic() {
                     );
                 } else {
                     console.warn(`Data channel opened for unknown peer ${socketId}. Adding as placeholder.`);
-                    return [...prevPeers, { socketId: socketId, username: socketId.substring(0,8), dataChannelOpen: true }];
+                    return [...prevPeers, { socketId: socketId, username: socketId.substring(0, 8), dataChannelOpen: true }];
                 }
             });
         };
@@ -225,7 +365,6 @@ export function usePeerDropLogic() {
         }
     }, [createPeerConnection, handleICECandidate, setDataChannel]);
 
-
     const createAndSendOffer = useCallback(async (peerId) => {
         const peerConnection = createPeerConnection(peerId);
         peerConnectionsRef.current[peerId] = peerConnection;
@@ -249,7 +388,6 @@ export function usePeerDropLogic() {
         }
     }, [createPeerConnection, handleICECandidate, setDataChannel]);
 
-
     const closePeerConnection = useCallback((socketId) => {
         if (peerConnectionsRef.current[socketId]) {
             peerConnectionsRef.current[socketId].close();
@@ -259,98 +397,115 @@ export function usePeerDropLogic() {
         closeDataChannel(socketId);
     }, [closeDataChannel]);
 
-
-    const handleSendFile = useCallback((file) => {
+    const handleSendFile = useCallback(async (file) => {
         if (!file) {
             console.warn('No file selected');
             toast.warn('Please select a file to send.');
             return;
         }
 
-        const activeDataChannels = Object.values(dataChannelsRef.current).filter(
-            (channel) => channel.readyState === 'open'
+        const activeChannelIds = Object.keys(dataChannelsRef).filter(
+            (id) => dataChannelsRef[id] && dataChannelsRef[id].readyState === 'open'
         );
 
-        if (activeDataChannels.length === 0) {
+        if (activeChannelIds.length === 0) {
             console.warn('No active data channels to send file to.');
             toast.warn('No peers connected to send file to.');
             return;
         }
 
+        setIsProcessingFile(true);
+
+        const fileId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        const arrayBuffer = await file.arrayBuffer();
+        const hash = await calculateFileHash(arrayBuffer);
+
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+        pendingTransfersRef.current[fileId] = {
+            fileName: file.name,
+            initialPeerIds: activeChannelIds,
+            remainingPeersCount: activeChannelIds.length,
+            confirmedPeers: new Set(),
+            totalChunks,
+            currentChunkToSend: 0,
+            lowestUnackedChunk: 0,
+            sentChunks: new Set(),
+            ackedChunks: new Set(),
+            file: file,
+            sendWindowOfChunks: null
+        };
+
+        setTransferStatus(prev => ({
+            ...prev,
+            [fileId]: { confirmed: 0, total: activeChannelIds.length }
+        }));
+
         setIsTransferring(true);
         setTransferProgress(0);
         setSendingFileName(file.name);
 
-        const metadata = JSON.stringify({ name: file.name, size: file.size });
+        const metadata = JSON.stringify({
+            name: file.name,
+            size: file.size,
+            fileId,
+            totalChunks,
+            hash
+        });
 
-        const reader = new FileReader();
-        let offset = 0;
-
-        const sendChunk = (channel, chunkToSend) => {
-            if (channel.readyState === 'open') {
-                channel.send(chunkToSend);
+        activeChannelIds.forEach(socketId => {
+            const channel = dataChannelsRef[socketId];
+            if (channel && channel.readyState === 'open') {
+                channel.send(`metadata:${metadata}`);
             }
-        };
+        });
 
-        reader.onload = () => {
-            try {
-                if (reader.result) {
-                    const chunk = reader.result;
+        const sendChunkToChannels = (chunkIndex) => {
+            const transfer = pendingTransfersRef.current[fileId];
+            if (!transfer || transfer.sentChunks.has(chunkIndex) || chunkIndex >= totalChunks) return;
 
-                    if (offset === 0) {
-                        activeDataChannels.forEach(channel => {
-                            sendChunk(channel, `metadata:${metadata}`);
-                        });
-                    }
+            const start = chunkIndex * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunkData = arrayBuffer.slice(start, end);
 
-                    activeDataChannels.forEach(channel => {
-                        if (channel.bufferedAmount < channel.bufferedAmountLowThreshold || channel.bufferedAmount === 0) {
-                            sendChunk(channel, chunk);
-                        } else {
-                            channel.onbufferedamountlow = () => {
-                                channel.onbufferedamountlow = null;
-                                sendChunk(channel, chunk);
-                            };
-                        }
-                    });
+            const chunkWithIndex = new ArrayBuffer(chunkData.byteLength + 4);
+            const view = new DataView(chunkWithIndex);
+            view.setUint32(0, chunkIndex, true);
+            new Uint8Array(chunkWithIndex, 4).set(new Uint8Array(chunkData));
 
-                    offset += chunk.byteLength;
-                    setTransferProgress(Math.round((offset / file.size) * 100));
-
-                    if (offset < file.size) {
-                        readSlice(offset);
-                    } else {
-                        activeDataChannels.forEach(channel => {
-                            sendChunk(channel, 'end');
-                        });
-                        setIsTransferring(false);
-                        setSelectedFile(null);
-                        setTimeout(() => setSendingFileName(''), 3000);
-                        setSentFiles((prev) => [...prev, { name: file.name, recipients: Object.keys(dataChannelsRef.current) }]);
-                        toast.success(`File "${file.name}" sent successfully!`);
-                    }
+            transfer.initialPeerIds.forEach(socketId => {
+                const channel = dataChannelsRef[socketId];
+                if (channel && channel.readyState === 'open') {
+                    channel.send(chunkWithIndex);
                 }
-            } catch (e) {
-                console.error("Error while transferring file:", e);
-                toast.error(`Failed to send file "${file.name}".`);
-                setIsTransferring(false);
+            });
+
+            transfer.sentChunks.add(chunkIndex);
+        };
+
+        pendingTransfersRef.current[fileId].sendWindowOfChunks = () => {
+            const transfer = pendingTransfersRef.current[fileId];
+            while (
+                transfer.currentChunkToSend < transfer.totalChunks &&
+                (transfer.currentChunkToSend - transfer.lowestUnackedChunk) < CHUNK_WINDOW_SIZE
+            ) {
+                sendChunkToChannels(transfer.currentChunkToSend);
+                transfer.currentChunkToSend++;
+            }
+            if (transfer.lowestUnackedChunk === transfer.totalChunks && transfer.currentChunkToSend === transfer.totalChunks) {
+                transfer.initialPeerIds.forEach(socketId => {
+                    const channel = dataChannelsRef[socketId];
+                    if (channel && channel.readyState === 'open') {
+                        channel.send('end');
+                    }
+                });
             }
         };
 
-        reader.onerror = (error) => {
-            console.error('Error reading file:', error);
-            toast.error(`Failed to read file "${file.name}".`);
-            setIsTransferring(false);
-        };
+        setIsProcessingFile(false);
+        pendingTransfersRef.current[fileId].sendWindowOfChunks();
 
-        const readSlice = (o) => {
-            const slice = file.slice(o, o + CHUNK_SIZE);
-            reader.readAsArrayBuffer(slice);
-        };
-
-        readSlice(0);
-    }, [dataChannelsRef, setSelectedFile, setSentFiles]);
-
+    }, [calculateFileHash]);
 
     const joinRoom = useCallback((
         room,
@@ -410,6 +565,14 @@ export function usePeerDropLogic() {
             for (const peerId in peerConnectionsRef.current) {
                 closePeerConnection(peerId);
             }
+            for (const fileId in pendingTransfersRef.current) {
+                delete pendingTransfersRef.current[fileId];
+            }
+            setTransferStatus({});
+            setIsTransferring(false);
+            setSendingFileName('');
+            setSelectedFile(null);
+
 
             if (shouldAttemptReconnectRef.current) {
                 setIsConnecting(true);
@@ -482,9 +645,68 @@ export function usePeerDropLogic() {
 
         socket.on('peer-left', ({ username: leftUsername, socketId: leftSocketId }) => {
             console.log(`👋 Peer ${leftUsername} (${leftSocketId}) left.`);
+            toast.info(`${leftUsername} left the room.`);
             setActivePeers((prevPeers) => prevPeers.filter(peer => peer.socketId !== leftSocketId));
             peersInitiatedConnectionWithRef.current = peersInitiatedConnectionWithRef.current.filter(id => id !== leftSocketId);
             closePeerConnection(leftSocketId);
+
+            if (fileBufferRef.current[leftSocketId]) {
+                toast.error('File transfer interrupted: Sender disconnected.');
+                delete fileBufferRef.current[leftSocketId];
+                setDownloadProgress(0);
+                setReceivingFileName('');
+                setShowSuccessCheck(false);
+            }
+
+            for (const fileId in pendingTransfersRef.current) {
+                const transfer = pendingTransfersRef.current[fileId];
+                if (transfer.initialPeerIds.includes(leftSocketId)) {
+                    transfer.remainingPeersCount--;
+
+                    transfer.confirmedPeers.delete(leftSocketId);
+
+                    setTransferStatus(prev => ({
+                        ...prev,
+                        [fileId]: { confirmed: transfer.confirmedPeers.size, total: transfer.remainingPeersCount }
+                    }));
+
+                    const fileName = transfer.fileName;
+                    const initialTotalPeers = transfer.initialPeerIds.length;
+                    const confirmedCount = transfer.confirmedPeers.size;
+                    const totalPeersForCompletion = transfer.remainingPeersCount;
+
+                    if (confirmedCount === totalPeersForCompletion) {
+                        if (confirmedCount > 0) {
+                            setSentFiles((prev) => [...prev, {
+                                name: fileName,
+                                recipients: Array.from(transfer.confirmedPeers)
+                            }]);
+                            let successMessage = `File "${fileName}" sent successfully`;
+                            if (confirmedCount === initialTotalPeers) {
+                                successMessage += ` to all ${initialTotalPeers} peers!`;
+                            } else {
+                                successMessage += ` to ${confirmedCount} of ${initialTotalPeers} initial peers!`;
+                            }
+                            toast.success(successMessage);
+                        } else {
+                            toast.error(`File "${fileName}" transfer failed: All recipients disconnected or failed validation.`);
+                        }
+
+                        delete pendingTransfersRef.current[fileId];
+                        setTransferStatus(prev => {
+                            const newStatus = { ...prev };
+                            delete newStatus[fileId];
+                            return newStatus;
+                        });
+
+                        if (Object.keys(pendingTransfersRef.current).length === 0) {
+                            setIsTransferring(false);
+                            setSelectedFile(null);
+                            setTimeout(() => setSendingFileName(''), 3000);
+                        }
+                    }
+                }
+            }
         });
 
     }, [closePeerConnection, createAndSendOffer, handleIncomingSignal, username]);
@@ -500,7 +722,7 @@ export function usePeerDropLogic() {
                 closePeerConnection(peerId);
             }
         };
-    }, [closePeerConnection]);
+    }, [closeDataChannel]);
 
     const emitSignal = useCallback((payload) => {
         if (socketRef.current && socketRef.current.connected) {
@@ -532,5 +754,7 @@ export function usePeerDropLogic() {
         transferProgress,
         sendingFileName,
         sentFiles,
+        transferStatus,
+        isProcessingFile,
     };
 }
