@@ -534,6 +534,17 @@ export function usePeerDropLogic() {
         });
         socketRef.current = socket;
 
+        socket.on('error', (error) => {
+            console.error('Socket error:', error.message);
+            setConnectionError(error.message);
+            toast.error(error.message);
+            if (error.message.includes('Too many')) {
+                shouldAttemptReconnectRef.current = false;
+                socket.disconnect();
+                socketRef.current = null;
+            }
+        });
+
         socket.on('connect', () => {
             console.log("Socket connected, attempting to join/create room.");
             shouldAttemptReconnectRef.current = true;

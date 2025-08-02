@@ -59,15 +59,19 @@ function HomePage() {
     };
 
     const handleManualJoin = (id) => {
-        if (id.trim()) {
+        const roomId = id.trim();
+        const roomIdRegex = /^[a-f0-9]{12}$/;
+        if (roomId && roomIdRegex.test(roomId)) {
             joinRoom(
-                id,
+                roomId,
                 false,
                 handleInvalidRoom,
                 handleRoomJoined,
                 handleRoomFull,
                 handleConnectionError
             );
+        } else {
+            toast.error("Invalid Room ID format.");
         }
     };
 
@@ -84,8 +88,9 @@ function HomePage() {
     };
 
     useEffect(() => {
+        const roomIdRegex = /^[a-f0-9]{12}$/;
         if (!initialAttemptMade && !roomId && !isConnecting) {
-            if (roomIdFromUrl) {
+            if (roomIdFromUrl && roomIdRegex.test(roomIdFromUrl)) {
                 joinRoom(
                     roomIdFromUrl,
                     false,
@@ -94,10 +99,13 @@ function HomePage() {
                     handleRoomFull,
                     handleConnectionError
                 );
+            } else if (roomIdFromUrl) {
+                toast.error("Invalid Room ID in URL.");
+                navigate('/', { replace: true });
             }
             setInitialAttemptMade(true);
         }
-    }, [initialAttemptMade, roomId, isConnecting, roomIdFromUrl, joinRoom, handleInvalidRoom, handleRoomJoined, handleRoomFull, handleConnectionError]);
+    }, [initialAttemptMade, roomId, isConnecting, roomIdFromUrl, joinRoom, handleInvalidRoom, handleRoomJoined, handleRoomFull, handleConnectionError, navigate]);
 
     useEffect(() => {
         if (roomId && roomIdFromUrl !== roomId) {

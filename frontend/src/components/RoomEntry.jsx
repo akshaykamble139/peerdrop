@@ -1,11 +1,16 @@
 import { useState } from 'react';
+import { toast } from 'react-toastify';
 
 function RoomEntry({ onJoinRoom, onCreateRoom, isConnecting, connectionError }) {
   const [inputRoomId, setInputRoomId] = useState('');
 
   const handleJoin = () => {
-    if (inputRoomId.trim()) {
-      onJoinRoom(inputRoomId.trim());
+    const roomId = inputRoomId.trim();
+    const roomIdRegex = /^[a-f0-9]{12}$/;
+    if (roomId && roomIdRegex.test(roomId)) {
+      onJoinRoom(roomId);
+    } else {
+      toast.error("Invalid Room ID format.");
     }
   };
 
@@ -28,7 +33,7 @@ function RoomEntry({ onJoinRoom, onCreateRoom, isConnecting, connectionError }) 
         value={inputRoomId}
         autoFocus
         onChange={(e) => setInputRoomId(e.target.value)}
-        onKeyDown={handleKeyDown} 
+        onKeyDown={handleKeyDown}
         disabled={isConnecting}
       />
       <div className="flex gap-4">
@@ -45,18 +50,18 @@ function RoomEntry({ onJoinRoom, onCreateRoom, isConnecting, connectionError }) 
         </button>
         <button
           onClick={onCreateRoom}
-          disabled={isConnecting} 
+          disabled={isConnecting}
           className={`w-full px-4 py-2 rounded text-white
             ${isConnecting
-              ? 'bg-emerald-300 cursor-not-allowed' 
+              ? 'bg-emerald-300 cursor-not-allowed'
               : 'bg-emerald-500 text-white px-4 py-2 rounded hover:bg-emerald-600 w-full'} 
           `}
         >
-        {isConnecting ? 'Creating...' : 'Create Room'} 
+          {isConnecting ? 'Creating...' : 'Create Room'}
         </button>
       </div>
 
-      {isConnecting && ( 
+      {isConnecting && (
         <p className="text-center text-indigo-600 mt-4 animate-pulse">
           Establishing connection... (This may take a moment)
         </p>

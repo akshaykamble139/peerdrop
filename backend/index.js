@@ -4,6 +4,10 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 
+const { RateLimiterMemory } = require('rate-limiter-flexible');
+const MAX_CONNECTIONS_PER_IP_PER_MINUTE = 10;
+const MAX_MESSAGES_PER_SECOND_PER_SOCKET = 20;
+
 const PORT = process.env.PORT || 5000;
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || '*';
 const MAX_USERS_PER_ROOM = parseInt(process.env.MAX_USERS_PER_ROOM, 10) || 5;
@@ -24,10 +28,39 @@ const io = new Server(server, {
   }
 });
 
+const connectionLimiter = new RateLimiterMemory({
+  points: MAX_CONNECTIONS_PER_IP_PER_MINUTE,
+  duration: 60,
+});
+
+const messageLimiter = new RateLimiterMemory({
+  points: MAX_MESSAGES_PER_SECOND_PER_SOCKET,
+  duration: 1,
+  keyPrefix: 'msg_limit',
+});
+
+io.use(async (socket, next) => {
+  const ip = socket.handshake.address;
+  try {
+    await connectionLimiter.consume(ip);
+    next();
+  } catch (rejRes) {
+    next(new Error('Too many connections from this IP. Please try again later.'));
+  }
+});
+
 const rooms = new Map();
 const activeUsersInRooms = new Map();
 
 io.on('connection', (socket) => {
+  socket.use(async (packet, next) => {
+    try {
+      await messageLimiter.consume(socket.id);
+      next();
+    } catch (rejRes) {
+      next(new Error('Too many messages. Please slow down.'));
+    }
+  });
   console.log(`🔌 New client connected: ${socket.id}`);
 
   socket.on('create-room', (roomId) => {
@@ -59,8 +92,8 @@ io.on('connection', (socket) => {
     const username = generateUniqueUsername(takenUsernames);
 
     const existingPeers = Array.from(roomSockets).map(existingSocketId => ({
-        socketId: existingSocketId,
-        username: usernamesMap.get(existingSocketId)
+      socketId: existingSocketId,
+      username: usernamesMap.get(existingSocketId)
     }));
 
     roomSockets.add(socket.id);
@@ -74,6 +107,22 @@ io.on('connection', (socket) => {
   });
 
   socket.on('signal', ({ to, from, data }) => {
+    const isValidSignal = (signalData) => {
+      if (typeof signalData !== 'object' || signalData === null) return false;
+      const type = signalData.type;
+      if (type === 'offer' || type === 'answer') {
+        return typeof signalData.sdp === 'string' && signalData.sdp.length > 0;
+      } else if (type === 'candidate') {
+        return typeof signalData.candidate === 'object' && signalData.candidate !== null;
+      }
+      return false;
+    };
+
+    if (!isValidSignal(data)) {
+      console.warn(`Attempted to send invalid signal data from ${from} to ${to}`);
+      return;
+    }
+
     console.log(`🔁 Relaying signal from ${from} to ${to}:`, data);
     io.to(to).emit('signal', { from, data });
   });
