@@ -219,7 +219,7 @@ function HomePage() {
                             />
                         </div>
 
-                        <h1 className="text-3xl font-bold text-indigo-700 mb-2">📁 PeerDrop</h1>
+                        <h1 className="text-3xl font-bold text-indigo-700 mb-2">PeerDrop 📁</h1>
                         <p className="text-gray-600 mb-4">Secure peer-to-peer file sharing in your browser.</p>
 
                         <FileInput
